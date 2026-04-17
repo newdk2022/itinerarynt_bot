@@ -2,8 +2,6 @@ import os
 import logging
 
 from telegram.ext import Updater, CommandHandler
-
-TOKEN = os.getenv("8765114886:AAERMDxtU87_6JEvDu6OMSYENIEpQ18czWo")
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from crawler import get_tainan_schedule, get_president_schedule
@@ -20,7 +18,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
 # ========= 指令 =========
 
 def start(update, context):
@@ -30,7 +27,6 @@ def start(update, context):
         "/subscribe tainan\n"
         "/subscribe president"
     )
-
 
 def subscribe_cmd(update, context):
     user_id = update.message.chat_id
@@ -47,7 +43,6 @@ def subscribe_cmd(update, context):
 
     subscribe(user_id, target)
     update.message.reply_text(f"✅ 已訂閱 {target}")
-
 
 # ========= 推播檢查 =========
 
@@ -81,16 +76,27 @@ def check_updates(context):
     except Exception as e:
         logger.error(f"Error in check_updates: {e}")
 
-
 # ========= 主程式 =========
 
 def main():
     if not TOKEN:
-        raise ValueError("BOT_TOKEN 沒有設定！請到 Render 設定環境變數")
+        raise ValueError("BOT_TOKEN 沒有設定！")
 
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
 
     # 指令
     dp.add_handler(CommandHandler("start", start))
-    dp
+    dp.add_handler(CommandHandler("subscribe", subscribe_cmd))
+
+    # 排程（每10分鐘檢查一次）
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_updates, "interval", minutes=10, args=[updater])
+    scheduler.start()
+
+    # 啟動 bot
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == "__main__":
+    main()
