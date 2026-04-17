@@ -99,6 +99,8 @@ def my_subscriptions(update, context):
 # ========= 推播 =========
 
 def check_updates():
+    logger.info("🔥 check_updates triggered")
+    print("🔥 check_updates running")
     try:
         all_data = {
             "tainan": get_tainan_schedule(),
