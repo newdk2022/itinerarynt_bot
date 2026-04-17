@@ -1,26 +1,27 @@
 import os
 import logging
 import pytz
-from flask import Flask, request
 
-from telegram import Update, Bot
-from telegram.ext import Dispatcher, CommandHandler
+from flask import Flask
+from telegram import Bot
+from telegram.ext import Updater, CommandHandler
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from crawler import get_tainan_schedule, get_president_schedule
-from database import subscribe, get_users, get_user_targets, is_new, save_history
+from database import (
+    subscribe,
+    unsubscribe,
+    get_users,
+    get_user_targets,
+    is_new,
+    save_history
+)
 
 # ========= 基本設定 =========
 
 TOKEN = os.getenv("BOT_TOKEN")
-APP_URL = os.getenv("APP_URL")  # Railway 網址
-
-if not TOKEN:
-    raise ValueError("BOT_TOKEN 沒有設定")
-
-if not APP_URL:
-    raise ValueError("APP_URL 沒有設定")
+CHAT_ID_TEST = os.getenv("TEST_CHAT_ID")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -29,54 +30,79 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# ========= Flask Webhook =========
-
 app = Flask(__name__)
-bot = Bot(token=TOKEN)
-dispatcher = Dispatcher(bot, None, workers=4)
 
-def send_test():
-    bot.send_message(chat_id=chenze_0629, text="✅測試成功：已正常運作")
+bot = Bot(token=TOKEN)
+updater = Updater(token=TOKEN, use_context=True)
+dp = updater.dispatcher
+
 
 # ========= 指令 =========
 
 def start(update, context):
     update.message.reply_text(
-        "📢 首長公開行程通知 Bot\n\n"
-        "可用指令：\n"
+        "📢 首長行程通知 Bot\n\n"
+        "指令列表：\n"
         "/subscribe tainan\n"
-        "/subscribe president"
+        "/subscribe president\n"
+        "/unsubscribe tainan\n"
+        "/unsubscribe president\n"
+        "/my"
     )
 
+
+# 👉 訂閱（支援重複訂閱多個）
 def subscribe_cmd(update, context):
     user_id = update.message.chat_id
 
-    if len(context.args) == 0:
+    if not context.args:
         update.message.reply_text("請輸入 /subscribe tainan 或 /subscribe president")
         return
 
     target = context.args[0].lower()
 
     if target not in ["tainan", "president"]:
-        update.message.reply_text("只能訂閱：tainan 或 president")
+        update.message.reply_text("只能訂閱：tainan / president")
         return
 
     subscribe(user_id, target)
-    update.message.reply_text(f"✅ 已訂閱 {target}")
+    update.message.reply_text(f"✅ 已訂閱：{target}")
 
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("subscribe", subscribe_cmd))
+
+# 👉 取消訂閱
+def unsubscribe_cmd(update, context):
+    user_id = update.message.chat_id
+
+    if not context.args:
+        update.message.reply_text("請輸入 /unsubscribe tainan 或 /unsubscribe president")
+        return
+
+    target = context.args[0].lower()
+
+    unsubscribe(user_id, target)
+    update.message.reply_text(f"❌ 已取消訂閱：{target}")
+
+
+# 👉 查看訂閱
+def my_subscriptions(update, context):
+    user_id = update.message.chat_id
+    targets = get_user_targets(user_id)
+
+    if not targets:
+        update.message.reply_text("你目前沒有訂閱任何通知")
+        return
+
+    text = "📌 你的訂閱：\n\n" + "\n".join(f"• {t}" for t in targets)
+    update.message.reply_text(text)
+
 
 # ========= 推播 =========
 
 def check_updates():
     try:
-        tainan = get_tainan_schedule()
-        president = get_president_schedule()
-
         all_data = {
-            "tainan": tainan,
-            "president": president
+            "tainan": get_tainan_schedule(),
+            "president": get_president_schedule()
         }
 
         users = get_users()
@@ -91,7 +117,6 @@ def check_updates():
                 for item in all_data[t]:
                     if is_new(item):
 
-                        # 🔥 你要的格式
                         text = (
                             f"📢 首長行程更新\n\n"
                             f"🏛 來源：{t}\n"
@@ -105,28 +130,49 @@ def check_updates():
     except Exception as e:
         logger.error(f"check_updates error: {e}")
 
-# ========= Scheduler =========
 
-scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-scheduler.add_job(check_updates, "interval", minutes=10)
-scheduler.start()
-
-# ========= Webhook Route =========
-
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "ok"
+# ========= Flask =========
 
 @app.route("/")
 def home():
     return "Bot is running"
 
-# ========= 啟動 =========
+
+# ========= 啟動測試 =========
+
+def send_test():
+    if CHAT_ID_TEST:
+        bot.send_message(
+            chat_id=CHAT_ID_TEST,
+            text="🧪 Bot 已成功啟動"
+        )
+
+
+# ========= 主程式 =========
+
+def main():
+    if not TOKEN:
+        raise ValueError("BOT_TOKEN 沒設定")
+
+    # 指令
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("subscribe", subscribe_cmd))
+    dp.add_handler(CommandHandler("unsubscribe", unsubscribe_cmd))
+    dp.add_handler(CommandHandler("my", my_subscriptions))
+
+    # bot
+    updater.start_polling()
+
+    # scheduler
+    scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
+    scheduler.add_job(check_updates, "interval", minutes=10)
+    scheduler.start()
+
+    # test
+    send_test()
+
+    updater.idle()
+
 
 if __name__ == "__main__":
-    # 設 webhook
-    bot.set_webhook(f"{APP_URL}/{TOKEN}")
-
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    main()
