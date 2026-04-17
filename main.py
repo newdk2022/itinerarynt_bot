@@ -36,7 +36,7 @@ bot = Bot(token=TOKEN)
 dispatcher = Dispatcher(bot, None, workers=4)
 
 def send_test():
-    bot.send_message(chat_id=chenze0629, text="✅測試成功：已正常運作")
+    bot.send_message(chat_id=chenze_0629, text="✅測試成功：已正常運作")
 
 # ========= 指令 =========
 
