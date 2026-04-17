@@ -15,8 +15,3 @@ Telegram 首長公開行程通知機器人
 - /start
 - /subscribe tainan
 - /subscribe president
-
-## 環境變數
-BOT_TOKEN=8765114886:AAERMDxtU87_6JEvDu6OMSYENIEpQ18czWo
-
-## 本地執行
