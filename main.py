@@ -51,7 +51,6 @@ def start(update, context):
     )
 
 
-# 👉 訂閱（支援重複訂閱多個）
 def subscribe_cmd(update, context):
     user_id = update.message.chat_id
 
@@ -69,7 +68,6 @@ def subscribe_cmd(update, context):
     update.message.reply_text(f"✅ 已訂閱：{target}")
 
 
-# 👉 取消訂閱
 def unsubscribe_cmd(update, context):
     user_id = update.message.chat_id
 
@@ -83,7 +81,6 @@ def unsubscribe_cmd(update, context):
     update.message.reply_text(f"❌ 已取消訂閱：{target}")
 
 
-# 👉 查看訂閱
 def my_subscriptions(update, context):
     user_id = update.message.chat_id
     targets = get_user_targets(user_id)
@@ -100,17 +97,17 @@ def my_subscriptions(update, context):
 
 def check_updates():
     logger.info("🔥 check_updates triggered")
-    print("🔥 check_updates running")
+
     try:
         all_data = {
-            "tainan": get_tainan_schedule(),
-            "president": get_president_schedule()
+            "tainan": get_tainan_schedule() or [],
+            "president": get_president_schedule() or []
         }
 
-        users = get_users()
+        users = get_users() or []
 
         for user in users:
-            targets = get_user_targets(user)
+            targets = get_user_targets(user) or []
 
             for t in targets:
                 if t not in all_data:
@@ -126,8 +123,11 @@ def check_updates():
                             f"{item}"
                         )
 
-                        bot.send_message(chat_id=user, text=text)
-                        save_history(item)
+                        try:
+                            bot.send_message(chat_id=user, text=text)
+                            save_history(item)
+                        except Exception as e:
+                            logger.error(f"send_message error: {e}")
 
     except Exception as e:
         logger.error(f"check_updates error: {e}")
@@ -140,14 +140,17 @@ def home():
     return "Bot is running"
 
 
-# ========= 啟動測試 =========
+# ========= 測試 =========
 
 def send_test():
     if CHAT_ID_TEST:
-        bot.send_message(
-            chat_id=CHAT_ID_TEST,
-            text="🧪 Bot 已成功啟動"
-        )
+        try:
+            bot.send_message(
+                chat_id=CHAT_ID_TEST,
+                text="🧪 Bot 已成功啟動"
+            )
+        except Exception as e:
+            logger.error(f"test send error: {e}")
 
 
 # ========= 主程式 =========
@@ -156,19 +159,23 @@ def main():
     if not TOKEN:
         raise ValueError("BOT_TOKEN 沒設定")
 
-    # 指令
+    # handlers
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("subscribe", subscribe_cmd))
     dp.add_handler(CommandHandler("unsubscribe", unsubscribe_cmd))
     dp.add_handler(CommandHandler("my", my_subscriptions))
 
-    # bot
-    updater.start_polling()
+    # 🚨 避免重複 scheduler
+    scheduler = BackgroundScheduler(
+        timezone=pytz.timezone("Asia/Taipei"),
+        daemon=True
+    )
 
-    # scheduler
-    scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
     scheduler.add_job(check_updates, "interval", minutes=10)
     scheduler.start()
+
+    # start bot
+    updater.start_polling()
 
     # test
     send_test()
