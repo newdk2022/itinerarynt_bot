@@ -47,7 +47,7 @@ def subscribe_cmd(update, context):
 
 # ========= 推播檢查 =========
 
-def check_updates(context):
+def check_updates(updater):
     try:
         tainan = get_tainan_schedule()
         president = get_president_schedule()
@@ -68,7 +68,7 @@ def check_updates(context):
 
                 for item in all_data[t]:
                     if is_new(item):
-                        context.bot.send_message(
+                        updater.bot.send_message(
                             chat_id=user,
                             text=f"📢 新行程通知\n\n{item}"
                         )
@@ -90,8 +90,8 @@ def main():
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("subscribe", subscribe_cmd))
 
-    # 排程（每10分鐘檢查一次）
-    scheduler = BackgroundScheduler()
+    # 排程（台灣時區）
+    scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
     scheduler.add_job(check_updates, "interval", minutes=10, args=[updater])
     scheduler.start()
 
