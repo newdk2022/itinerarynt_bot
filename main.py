@@ -1,11 +1,8 @@
 import os
 import logging
 import pytz
-from flask import Flask, request
 
-from telegram import Update, Bot
-from telegram.ext import Dispatcher, CommandHandler
-
+from telegram.ext import Updater, CommandHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from crawler import get_tainan_schedule, get_president_schedule
@@ -14,14 +11,12 @@ from database import subscribe, get_users, get_user_targets, is_new, save_histor
 # ========= 基本設定 =========
 
 TOKEN = os.getenv("BOT_TOKEN")
-APP_URL = os.getenv("APP_URL")  # Railway 網址
 
-bot = Bot(token=TOKEN)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-app = Flask(__name__)
-dispatcher = Dispatcher(bot, None, use_context=True)
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ========= 指令 =========
@@ -29,6 +24,7 @@ logger = logging.getLogger(__name__)
 def start(update, context):
     update.message.reply_text(
         "📢 首長公開行程通知 Bot\n\n"
+        "可用指令：\n"
         "/subscribe tainan\n"
         "/subscribe president"
     )
@@ -36,25 +32,22 @@ def start(update, context):
 def subscribe_cmd(update, context):
     user_id = update.message.chat_id
 
-    if not context.args:
-        update.message.reply_text("用法：/subscribe tainan")
+    if len(context.args) == 0:
+        update.message.reply_text("請輸入 /subscribe tainan 或 /subscribe president")
         return
 
     target = context.args[0].lower()
 
     if target not in ["tainan", "president"]:
-        update.message.reply_text("只能 tainan 或 president")
+        update.message.reply_text("只能訂閱：tainan 或 president")
         return
 
     subscribe(user_id, target)
     update.message.reply_text(f"✅ 已訂閱 {target}")
 
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("subscribe", subscribe_cmd))
+# ========= 推播檢查 =========
 
-# ========= 推播 =========
-
-def check_updates():
+def check_updates(updater):
     try:
         tainan = get_tainan_schedule()
         president = get_president_schedule()
@@ -83,39 +76,37 @@ def check_updates():
                             f"{item}"
                         )
 
-                        bot.send_message(chat_id=user, text=text)
+                        updater.bot.send_message(
+                            chat_id=user,
+                            text=text
+                        )
+
                         save_history(item)
 
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Error in check_updates: {e}")
 
-# ========= webhook =========
-
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "ok"
-
-@app.route("/")
-def index():
-    return "Bot running"
-
-# ========= 啟動 =========
+# ========= 主程式 =========
 
 def main():
-    if not TOKEN or not APP_URL:
-        raise ValueError("缺 BOT_TOKEN 或 APP_URL")
+    if not TOKEN:
+        raise ValueError("BOT_TOKEN 沒有設定！")
 
-    # 設 webhook
-    bot.set_webhook(url=f"{APP_URL}/{TOKEN}")
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
 
-    # 排程
+    # 指令
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("subscribe", subscribe_cmd))
+
+    # 排程（台灣時區）
     scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-    scheduler.add_job(check_updates, "interval", minutes=10)
+    scheduler.add_job(check_updates, "interval", minutes=10, args=[updater])
     scheduler.start()
 
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    # 啟動 bot
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
     main()
