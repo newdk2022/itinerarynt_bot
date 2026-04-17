@@ -68,10 +68,19 @@ def check_updates(updater):
 
                 for item in all_data[t]:
                     if is_new(item):
+
+                        text = (
+                            f"📢 首長行程更新\n\n"
+                            f"🏛 來源：{t}\n"
+                            f"━━━━━━━━━━\n"
+                            f"{item}"
+                        )
+
                         updater.bot.send_message(
                             chat_id=user,
-                            text=f"📢 新行程通知\n\n{item}"
+                            text=text
                         )
+
                         save_history(item)
 
     except Exception as e:
